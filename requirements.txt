@@ -1,0 +1,8 @@
+chainlit
+ctransformers
+chromadb
+gradio
+jq
+langchain
+sentence_transformers
+torch

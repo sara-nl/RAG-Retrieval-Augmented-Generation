@@ -1,0 +1,7 @@
+# Environment
+venv/
+
+# Project folders
+data/*
+db/*
+llm/*
