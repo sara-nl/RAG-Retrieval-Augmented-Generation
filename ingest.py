@@ -18,48 +18,53 @@ def parse_args(print_args=True):
         "--embedding_model",
         type=str,
         default="BAAI/bge-large-en",
-        choices = ["BAAI/bge-large-en"],
-        help="Type of Huggingface embedding model")
-    
+        help="Type of Huggingface embedding model",
+    )
+
     parser.add_argument(
         "--database_path",
         type=str,
-        default="db/vector.db",
+        default="db/vector_db",
         help="Location to store vector database",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        help="Type of device. Can also be cuda"
+        "--device", type=str, default="cpu", help="Type of device. Can also be cuda"
     )
-    
+
     args = parser.parse_args()
-    if print_args: print(vars(args))
+    if print_args:
+        print(vars(args))
     return args
 
-def get_embedding_model(embedding_model: str = "BAAI/bge-large-en", device: str ="cpu"):
-    # Set pre-trained embedder 
+
+def get_embedding_model(
+    embedding_model: str = "BAAI/bge-large-en", device: str = "cpu"
+):
+    # Set pre-trained embedder
     model_kwargs = {"device": device}
+    # Setting normalization to False as normalization may interfer with similarity search (but empirically not much difference)
     encode_kwargs = {"normalize_embeddings": False}
     embeddings = HuggingFaceBgeEmbeddings(
         model_name=embedding_model,
         model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs
+        encode_kwargs=encode_kwargs,
     )
     return embeddings
 
+
 def load_documents(data_path: str = "pet.pdf"):
     # Load documents
-    if data_path.endswith(".json*"):
+    if data_path.endswith(".json") or data_path.endswith(".jsonl"):
         jq_schema = ".text"
-        loader = JSONLoader( 
+        loader = JSONLoader(
             file_path=data_path,
             jq_schema=jq_schema,
             text_content=True,
-            json_lines=data_path.endswith(".jsonl")) # If newline json file then set True
+            json_lines=data_path.endswith(".jsonl"),
+        )  # If newline json file then set True
     elif data_path.endswith(".pdf"):
         from langchain.document_loaders import PyPDFLoader
+
         loader = PyPDFLoader(data_path)
     else:
         raise NotImplementedError
@@ -69,16 +74,25 @@ def load_documents(data_path: str = "pet.pdf"):
     data = text_splitter.split_documents(data)
     return data
 
+
 def main(args):
     print("Loading embedding model")
-    embeddings = get_embedding_model(embedding_model = args.embedding_model, device=args.device)
+    embeddings = get_embedding_model(
+        embedding_model=args.embedding_model, device=args.device
+    )
     print("Loading documents")
     documents = load_documents(args.data_path)
     print("Saving to database")
-    vector_db = Chroma.from_documents(documents, embeddings, persist_directory=args.database_path, collection_metadata={"hnsw:space": "cosine"})
+    vector_db = Chroma.from_documents(
+        documents,
+        embeddings,
+        persist_directory=args.database_path,
+        collection_metadata={"hnsw:space": "cosine"},
+    )
     # Necessary only when calling in notebook where client object will be destroyed and database will be persisted anyway
-    #vector_db.persist()
+    # vector_db.persist()
     print("Vector database created")
+
 
 if __name__ == "__main__":
     main(parse_args())
