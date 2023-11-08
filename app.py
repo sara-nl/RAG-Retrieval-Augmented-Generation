@@ -155,7 +155,7 @@ def bash_retrieval(language_model, prompt, retriever):
 
     semantic_search = retriever.get_relevant_documents(query)
     print("Relevant document(s): \n:", semantic_search)
-    exit()
+
     print("Type of llm:", type(language_model))
 
     start_time = time.time()
