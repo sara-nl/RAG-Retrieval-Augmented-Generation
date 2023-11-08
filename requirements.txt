@@ -1,8 +1,9 @@
 chainlit
 ctransformers
-chromadb
+chromadb==0.4.15
 gradio
 jq
 langchain
 sentence_transformers
 torch
+pypdf

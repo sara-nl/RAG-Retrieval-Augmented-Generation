@@ -1,12 +1,16 @@
 import os
 import time
 import argparse
+import torch
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 from langchain import PromptTemplate
 from langchain.llms import CTransformers
 from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQA
 from langchain.embeddings import HuggingFaceBgeEmbeddings
+from langchain import HuggingFacePipeline
 
 import gradio as gr
 
@@ -23,7 +27,7 @@ def parse_args(print_args=True):
         "--language_model",
         type=str,
         default="llm/zephyr-7b-beta.Q5_K_S.gguf",
-        choices = ["zephyr-7b-beta.Q5_K_S.gguf"],
+        # choices = ["zephyr-7b-beta.Q5_K_S.gguf"],
         help="Type of Huggingface large language model"
     )
     parser.add_argument(
@@ -49,13 +53,23 @@ def parse_args(print_args=True):
         default=False, 
         action="store_true",
         help="Flag to enable UI via Gradio"
+    )  
+    parser.add_argument(
+        "--ctransformers",
+        default=False, 
+        action="store_true",
+        help="Flag to enable CTransformers"
     )
+
+    parser.add_argument("--cache_dir", type=str)
     
     args = parser.parse_args()
     if print_args: print(vars(args))
     return args
 
-def get_embedding_model(embedding_model: str = "BAAI/bge-large-en", device: str ="cpu"):
+
+
+def get_embedding_model(embedding_model: str = "BAAI/bge-large-en", device: str ="cpu", **kwargs):
     # Set pre-trained embedder 
     model_kwargs = {"device": device}
     encode_kwargs = {"normalize_embeddings": False}
@@ -66,7 +80,7 @@ def get_embedding_model(embedding_model: str = "BAAI/bge-large-en", device: str 
     )
     return embeddings
 
-def get_language_model(language_model, device):
+def get_language_model(language_model="", device="", cache_dir="", ctransformers=True, **kwargs):
     #TODO: does not work for GPU yet
     config = {
         "max_new_tokens": 1024,
@@ -78,18 +92,41 @@ def get_language_model(language_model, device):
         "threads": int(os.cpu_count() / 2)
     }
 
-    if "zephyr" in language_model or "mistral" in language_model:
-        model_type = "mistral"
-    else:
-        raise NotImplementedError
     
+    
+    if ctransformers:
+        # Cpu compatible smaller transformers
+        if "zephyr" in language_model or "mistral" in language_model:
+            model_type = "mistral"
+        else:
+            raise NotImplementedError
+        language_model = CTransformers(
+            model=language_model,
+            model_type=model_type,
+            lib="avx2" if device == "cpu" else None
+            **config
+        )
+    else:
+        # Default huggingface transformers
+        model = AutoModelForCausalLM.from_pretrained(
+            language_model,
+            cache_dir=cache_dir,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(language_model)
 
-    language_model = CTransformers(
-        model=language_model,
-        model_type=model_type,
-        lib="avx2" if device == "cpu" else None
-        **config
-    )
+        generator = pipeline(
+            "text-generation", 
+            model=model, 
+            tokenizer=tokenizer,
+            torch_dtype=torch.bfloat16,
+            max_new_tokens=258,
+            num_return_sequences=1,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+        language_model = HuggingFacePipeline(pipeline=generator)
     return language_model
 
 
@@ -106,9 +143,9 @@ def initialize_qa(args):
     """
 
     print("Loading embedding model")
-    embeddings = get_embedding_model(embedding_model = args.embedding_model, device=args.device)
+    embeddings = get_embedding_model(**vars(args))
     print("Loading large language model")
-    language_model = get_language_model(language_model=args.language_model, device=args.device)
+    language_model = get_language_model(**vars(args))
     
 
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
@@ -122,6 +159,8 @@ def bash_retrieval(language_model, prompt, retriever):
 
     semantic_search = retriever.get_relevant_documents(query)
     print("Relevant document(s): \n:", semantic_search)
+
+    print("Type of llm:", type(language_model))
 
     start_time = time.time()
     qa = RetrievalQA.from_chain_type(
