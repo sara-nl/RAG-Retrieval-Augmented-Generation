@@ -7,3 +7,4 @@ langchain
 sentence_transformers
 torch
 pypdf
+rank_bm25

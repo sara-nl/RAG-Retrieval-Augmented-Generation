@@ -9,6 +9,7 @@ from langchain import PromptTemplate
 from langchain.llms import CTransformers
 from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQA
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from langchain.embeddings import HuggingFaceBgeEmbeddings
 from langchain import HuggingFacePipeline
 
@@ -20,8 +21,13 @@ def parse_args(print_args=True):
         "--embedding_model",
         type=str,
         default="BAAI/bge-large-en",
-        choices = ["BAAI/bge-large-en"],
         help="Type of Huggingface embedding model"
+    )
+    parser.add_argument(
+        "--data_path",
+        default="data/pet.pdf",
+        type=str,
+        help="File where data is stored. Can be single pdf or jsonl file",
     )
     parser.add_argument(
         "--language_model",
@@ -132,14 +138,13 @@ def get_language_model(language_model="", device="", cache_dir="", ctransformers
 
 def initialize_qa(args):
 
-    prompt_template = """Use the following pieces of information to answer the user's question.
-    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    prompt_template = """<s>{context}
 
-    Context: {context}
-    Question: {question}
+You are a helpdesk employee of SURF, answering questions for users on `servicedesk.surf.nl`. Above is text which might be helpful for your response. NO URLs except when they are in the above text. Below is a question which requires answering. Please be helpful and answer the question to the best of your ability. Be brief and accurate, remove any `http` from your output. 
 
-    Only return the helpful answer below and nothing else.
-    Helpful answer:
+Question: {question}
+
+Answer:
     """
 
     print("Loading embedding model")
@@ -150,7 +155,16 @@ def initialize_qa(args):
 
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     load_vector_store = Chroma(persist_directory=args.database_path, embedding_function=embeddings)
-    retriever = load_vector_store.as_retriever(search_kwargs={"k": args.num_documents})
+
+    from ingest import load_documents
+    documents = load_documents(args.data_path)
+    bm25_retriever = BM25Retriever.from_documents(documents)
+    vec_retriever = load_vector_store.as_retriever(search_kwargs={"k": args.num_documents})
+
+    retriever = EnsembleRetriever(
+        retrievers=[bm25_retriever, vec_retriever],
+        weights=[0.5,0.5]
+    )
 
     return language_model, prompt, retriever
 
@@ -218,7 +232,8 @@ def main(args):
     if args.ui:
         launch_gradio(language_model, prompt, retriever)
     else:
-        bash_retrieval(language_model, prompt, retriever)
+        while True:
+            bash_retrieval(language_model, prompt, retriever)
 
 
 if __name__ == "__main__":

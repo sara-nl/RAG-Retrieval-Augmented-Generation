@@ -18,7 +18,6 @@ def parse_args(print_args=True):
         "--embedding_model",
         type=str,
         default="BAAI/bge-large-en",
-        choices = ["BAAI/bge-large-en"],
         help="Type of Huggingface embedding model")
     
     parser.add_argument(
@@ -26,6 +25,12 @@ def parse_args(print_args=True):
         type=str,
         default="db/vector.db",
         help="Location to store vector database",
+    )
+    parser.add_argument(
+        "--bm25_database_path",
+        type=str,
+        default="db/bm25.db",
+        help="Location to store full text search database",
     )
     parser.add_argument(
         "--device",
@@ -51,7 +56,7 @@ def get_embedding_model(embedding_model: str = "BAAI/bge-large-en", device: str 
 
 def load_documents(data_path: str = "pet.pdf"):
     # Load documents
-    if data_path.endswith(".json*"):
+    if data_path.endswith(".json") or data_path.endswith(".jsonl"):
         jq_schema = ".text"
         loader = JSONLoader( 
             file_path=data_path,
@@ -67,6 +72,7 @@ def load_documents(data_path: str = "pet.pdf"):
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     data = text_splitter.split_documents(data)
+    print(f"I have {len(data)} lines")
     return data
 
 def main(args):
@@ -74,7 +80,8 @@ def main(args):
     embeddings = get_embedding_model(embedding_model = args.embedding_model, device=args.device)
     print("Loading documents")
     documents = load_documents(args.data_path)
-    print("Saving to database")
+
+    print("Saving to Vector database")
     vector_db = Chroma.from_documents(documents, embeddings, persist_directory=args.database_path, collection_metadata={"hnsw:space": "cosine"})
     # Necessary only when calling in notebook where client object will be destroyed and database will be persisted anyway
     #vector_db.persist()
